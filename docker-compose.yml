@@ -1,0 +1,79 @@
+version: "3.3"
+
+networks:
+  web:
+    external: true
+  internal:
+    external: false
+
+services:
+  traefik:
+    image: "traefik:v2.6"
+    command:
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --api
+      - --providers.docker=true
+      - --providers.file.directory=/configuration/
+      - --providers.file.watch=true
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - "./configuration/:/configuration/"
+      - "./certs/:/etc/certs:ro"
+    labels:
+      - "traefik.http.routers.monitor.rule=Host(`monitor.traefik.test`)"
+      - "traefik.http.routers.monitor.service=api@internal"
+      - "traefik.http.routers.monitor.entrypoints=websecure"
+      - "traefik.http.routers.monitor.tls=true"
+    networks:
+      - web
+
+  whoami:
+    image: traefik/whoami:v1.7.1
+    labels:
+      - "traefik.http.routers.whoami.rule=Host(`traefik.test`)"
+      - "traefik.http.routers.whoami.entrypoints=websecure"
+      - "traefik.http.routers.whoami.tls=true"
+    networks:
+      - web
+
+  blog:
+    image: wordpress:4.9.8-apache
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_PASSWORD: test
+    labels:
+      - "traefik.http.routers.blog.rule=Host(`blog.traefik.test`)"
+      - "traefik.http.routers.blog.entrypoints=websecure"
+      - "traefik.http.routers.blog.tls=true"
+      - "traefik.docker.network=web"
+    networks:
+      - internal
+      - web
+    depends_on:
+      - db
+
+  db:
+    image: mysql:5.7
+    environment:
+      MYSQL_ROOT_PASSWORD: test
+    networks:
+      - internal
+    labels:
+      - traefik.enable=false
+
+  adminer:
+    image: adminer:4.6.3-standalone
+    labels:
+      - "traefik.http.routers.adminer.rule=Host(`db-admin.traefik.test`)"
+      - "traefik.http.routers.adminer.entrypoints=websecure"
+      - "traefik.http.routers.adminer.tls=true"
+      - "traefik.docker.network=web"
+    networks:
+      - internal
+      - web
